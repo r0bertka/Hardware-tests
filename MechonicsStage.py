@@ -1,53 +1,99 @@
-import ftd2xx as ftd
-from ftd2xx import defines, FTD2XX
+from dataclasses import dataclass
+from enum import Enum
+
+from ftd2xx import FTD2XX
+from ftd2xx import _ftd2xx as _ft
+
+nm = float  # nanometer
 
 SCALE_FACTOR = 64 / 450  # steps per nm
 
 
-def nm_to_steps(pos_nm: float) -> int:
-    return round(pos_nm * SCALE_FACTOR)
+class Axis(Enum):
+    X = 1
+    Y = 2
+    Z = 3
 
 
-def move_to_relative_position(handle: FTD2XX, axis: int, velocity: int, distance_nm: float):
-    steps = nm_to_steps(distance_nm)
-    s = f'PM,{axis},{velocity},{steps}\r'
-    data = bytes(s, encoding='utf-8')
-    handle.purge()
-    handle.write(data)
+@dataclass
+class PositionCounters:
+    x: int
+    y: int
+    z: int
+
+    def update_relative(self, axis: Axis, steps: int) -> None:
+        if axis == Axis.X:
+            self.x += steps
+        elif axis == Axis.Y:
+            self.y += steps
+        elif axis == Axis.Z:
+            self.z += steps
+        else:
+            raise ValueError
+
+    def update_absolute(self, axis: Axis, position: int) -> None:
+        if axis == Axis.X:
+            self.x = position
+        elif axis == Axis.Y:
+            self.y = position
+        elif axis == Axis.Z:
+            self.z = position
+        else:
+            raise ValueError
 
 
-def move_to_absolute_position(handle: FTD2XX, axis: int, velocity: int, position_nm: float):
-    position = nm_to_steps(position_nm)
-    s = f'PA,{axis},{velocity},{position}\r'
-    data = bytes(s, encoding='utf-8')
-    handle.purge()
-    handle.write(data)
+class MechonicsStage(FTD2XX):
 
+    def __init__(self, handle: _ft.FT_HANDLE):
+        super().__init__(handle)
+        self.position_counters = PositionCounters(0, 0, 0)
 
-def move_single_step(handle: FTD2XX, axis: int, direction: int):
-    if direction in {0,1}:
-        s = f'PS,{axis},{direction}\r'
+    def nm_to_steps(self, pos_nm: float) -> int:
+        return round(pos_nm * SCALE_FACTOR)  # SCALE_FACTOR is given by CF-30 controller
+
+    def move_to_relative_position(self, axis: Axis, velocity: int, distance: nm):
+        steps = self.nm_to_steps(distance)  # moving by a distance that is given in nm, needs converting
+        s = f'PM,{axis.value},{velocity},{steps}\r'
         data = bytes(s, encoding='utf-8')
-        handle.purge()
-        handle.write(data)
-    else:
-        print('Given direction is not valid')
+        self.purge()
+        self.write(data)
+        self.position_counters.update_relative(axis, steps)
 
+    def move_to_absolute_position(self, axis: Axis, velocity: int, position_nm: nm):
+        position = self.nm_to_steps(position_nm)  # moving to a position that is given in nm, needs converting
+        s = f'PA,{axis.value},{velocity},{position}\r'
+        data = bytes(s, encoding='utf-8')
+        self.purge()
+        self.write(data)
+        self.position_counters.update_absolute(axis, position)
 
-def set_speed(handle: FTD2XX, axis: int, velocity: int):
-    s = f'PV,{axis},{velocity}\r'
-    data = bytes(s, encoding='utf-8')
-    handle.purge()
-    handle.write(data)
+    def move_single_step(self, axis: Axis, direction: int):
+        if direction in {0, 1}:
+            s = f'PS,{axis.value},{direction}\r'
+            data = bytes(s, encoding='utf-8')
+            self.purge()
+            self.write(data)
+        else:
+            print('Given direction is not valid')
 
+    def set_speed(self, axis: Axis, velocity: int):
+        s = f'PV,{axis.value},{velocity}\r'
+        data = bytes(s, encoding='utf-8')
+        self.purge()
+        self.write(data)
 
-def set_ramp(handle: FTD2XX, axis: int, ramp: int):
-    s = f'SR,{axis},{ramp}\r'
-    data = bytes(s, encoding='utf-8')
-    handle.purge()
-    handle.write(data)
+    def set_ramp(self, axis: Axis, ramp: int):
+        s = f'SR,{axis.value},{ramp}\r'
+        data = bytes(s, encoding='utf-8')
+        self.purge()
+        self.write(data)
 
-handle = ftd.openEx(bytes('A000000', encoding='uft-8'))
-move_to_relative_position(1,1000,-10000)
-# print(d.getDeviceInfo())
+    def set_counter(self, axis: Axis, counter: int):
+        s = f'SC,{axis.value},{counter},\r'
+        data = bytes(s, encoding='utf-8')
+        self.purge()
+        self.write(data)
+
+    def ioctl(self):
+        pass
 
