@@ -1,6 +1,3 @@
-import sys
-from dataclasses import dataclass
-
 import ftd2xx as ftd
 from ftd2xx import defines, FTD2XX
 
